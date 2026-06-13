@@ -1,0 +1,343 @@
+version: "3.9"
+
+networks:
+  fraud-net:
+    driver: bridge
+
+volumes:
+  postgres-data:
+  kafka-data:
+  flink-checkpoints:
+  grafana-data:
+  prometheus-data:
+
+services:
+
+  # ── Kafka (KRaft, single-broker dev setup) ───────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    hostname: kafka
+    container_name: kafka
+    networks: [fraud-net]
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_LISTENERS: PLAINTEXT://kafka:29092,CONTROLLER://kafka:9093,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_LOG_DIRS: /var/lib/kafka/data
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_JMX_PORT: 9999
+      KAFKA_JMX_HOSTNAME: kafka
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server kafka:29092 --list 2>/dev/null || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+
+  # ── Schema Registry ──────────────────────────────────────────────────────
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.6.0
+    hostname: schema-registry
+    container_name: schema-registry
+    networks: [fraud-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "kafka:29092"
+      SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/subjects > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ── Kafka Topic Init (one-shot) ──────────────────────────────────────────
+  kafka-init:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: kafka-init
+    networks: [fraud-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    volumes:
+      - ./kafka/create-topics.sh:/create-topics.sh
+    entrypoint: ["/bin/bash", "/create-topics.sh"]
+    environment:
+      KAFKA_BROKER: "kafka:29092"
+    restart: "no"
+
+  # ── Kafka Connect + Debezium ──────────────────────────────────────────────
+  kafka-connect:
+    image: debezium/connect:2.4.2.Final
+    hostname: kafka-connect
+    container_name: kafka-connect
+    networks: [fraud-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    ports:
+      - "8083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: "kafka:29092"
+      GROUP_ID: "debezium-connect-cluster"
+      CONFIG_STORAGE_TOPIC: "_connect-configs"
+      OFFSET_STORAGE_TOPIC: "_connect-offsets"
+      STATUS_STORAGE_TOPIC: "_connect-status"
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      CONNECT_KEY_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_VALUE_CONVERTER: "org.apache.kafka.connect.json.JsonConverter"
+      CONNECT_KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8083/connectors > /dev/null"]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 60s
+
+  # ── Kafka UI ─────────────────────────────────────────────────────────────
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    networks: [fraud-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "9080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_NAME: debezium
+      KAFKA_CLUSTERS_0_KAFKACONNECT_0_ADDRESS: http://kafka-connect:8083
+
+  # ── Kafka Exporter ────────────────────────────────────────────────────────
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: kafka-exporter
+    networks: [fraud-net]
+    depends_on:
+      kafka:
+        condition: service_healthy
+    command: ["--kafka.server=kafka:29092"]
+    ports:
+      - "9308:9308"
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:15
+    hostname: postgres
+    container_name: postgres
+    networks: [fraud-net]
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: frauddb
+      POSTGRES_USER: frauduser
+      POSTGRES_PASSWORD: fraudpass
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/01_init.sql
+      - ./postgres/postgresql.conf:/etc/postgresql/postgresql.conf
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U frauduser -d frauddb"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  # ── Postgres Exporter ─────────────────────────────────────────────────────
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres-exporter
+    networks: [fraud-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATA_SOURCE_NAME: "postgresql://frauduser:fraudpass@postgres:5432/frauddb?sslmode=disable"
+    ports:
+      - "9187:9187"
+
+  # ── Flink JobManager ──────────────────────────────────────────────────────
+  jobmanager:
+    build:
+      context: ./flink
+      dockerfile: Dockerfile
+    image: fraud-flink:1.18.1
+    hostname: jobmanager
+    container_name: jobmanager
+    networks: [fraud-net]
+    ports:
+      - "8082:8081"   # Flink Web UI (8081 already used by schema-registry)
+      - "9249:9249"   # Prometheus metrics
+    command: jobmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address=jobmanager
+        state.backend=rocksdb
+        state.backend.incremental=true
+        state.checkpoints.dir=file:///flink-checkpoints
+        execution.checkpointing.interval=30s
+        execution.checkpointing.mode=EXACTLY_ONCE
+        execution.checkpointing.timeout=60s
+        execution.checkpointing.min-pause=5s
+        metrics.reporter.prom.factory.class=org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port=9249
+        parallelism.default=4
+        taskmanager.numberOfTaskSlots=4
+    volumes:
+      - flink-checkpoints:/flink-checkpoints
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/overview > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+  # ── Flink TaskManager ─────────────────────────────────────────────────────
+  taskmanager:
+    build:
+      context: ./flink
+      dockerfile: Dockerfile
+    image: fraud-flink:1.18.1
+    hostname: taskmanager
+    networks: [fraud-net]
+    depends_on:
+      jobmanager:
+        condition: service_healthy
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address=jobmanager
+        taskmanager.numberOfTaskSlots=4
+        taskmanager.memory.process.size=2048m
+        state.backend=rocksdb
+        state.backend.incremental=true
+        state.checkpoints.dir=file:///flink-checkpoints
+        metrics.reporter.prom.factory.class=org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+        metrics.reporter.prom.port=9249
+    volumes:
+      - flink-checkpoints:/flink-checkpoints
+
+  # ── Prometheus ────────────────────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:v2.48.1
+    container_name: prometheus
+    networks: [fraud-net]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-lifecycle"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9090/-/ready"]
+      interval: 10s
+      retries: 5
+
+  # ── Grafana ───────────────────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:10.2.3
+    container_name: grafana
+    networks: [fraud-net]
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ../dashboards:/var/lib/grafana/dashboards
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3000/api/health"]
+      interval: 10s
+      retries: 10
+
+  # ── OpenTelemetry Collector ───────────────────────────────────────────────
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.92.0
+    container_name: otel-collector
+    networks: [fraud-net]
+    depends_on:
+      jaeger:
+        condition: service_healthy
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+      - "8889:8889"
+    volumes:
+      - ./otel/otel-collector.yaml:/etc/otel-collector.yaml
+    command: ["--config=/etc/otel-collector.yaml"]
+
+  # ── Jaeger ────────────────────────────────────────────────────────────────
+  jaeger:
+    image: jaegertracing/all-in-one:1.52
+    container_name: jaeger
+    networks: [fraud-net]
+    ports:
+      - "16686:16686"
+      - "14250:14250"
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:14269/"]
+      interval: 10s
+      retries: 5
+      start_period: 10s
+
+  # ── Load Generator ────────────────────────────────────────────────────────
+  load-generator:
+    build:
+      context: ../load-generator
+      dockerfile: Dockerfile
+    container_name: load-generator
+    networks: [fraud-net]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: frauddb
+      POSTGRES_USER: frauduser
+      POSTGRES_PASSWORD: fraudpass
+      GENERATOR_RATE: "100"
+      GENERATOR_FRAUD_PCT: "5"
+    profiles: ["demo"]

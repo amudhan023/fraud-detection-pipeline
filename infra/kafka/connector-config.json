@@ -1,0 +1,41 @@
+{
+  "name": "transactions-cdc",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "tasks.max": "1",
+
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "frauduser",
+    "database.password": "fraudpass",
+    "database.dbname": "frauddb",
+    "database.server.name": "fraud_pg",
+
+    "plugin.name": "pgoutput",
+    "slot.name": "debezium_fraud_slot",
+    "publication.name": "dbz_publication",
+
+    "table.include.list": "public.transactions,public.accounts,public.merchants",
+
+    "topic.prefix": "fraud_pg",
+
+    "transforms": "route",
+    "transforms.route.type": "org.apache.kafka.connect.transforms.ReplaceField$Value",
+
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter.schemas.enable": "false",
+
+    "decimal.handling.mode": "double",
+    "time.precision.mode": "connect",
+
+    "heartbeat.interval.ms": "30000",
+    "snapshot.mode": "initial",
+
+    "topic.creation.default.replication.factor": "1",
+    "topic.creation.default.partitions": "12",
+    "topic.creation.default.cleanup.policy": "delete",
+    "topic.creation.default.retention.ms": "604800000"
+  }
+}

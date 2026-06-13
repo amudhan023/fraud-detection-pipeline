@@ -1,0 +1,32 @@
+# Scala / SBT
+target/
+project/target/
+project/project/
+*.class
+*.jar
+.bsp/
+.metals/
+.idea/
+*.iml
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+dist/
+*.egg-info/
+
+# Local env
+.env
+.env.local
+
+# Flink checkpoints / state
+flink-checkpoints/
+flink-savepoints/
+
+# macOS
+.DS_Store
+
+# Grafana exports (keep dashboards/ under version control)

@@ -1,0 +1,70 @@
+{
+  "__inputs": [
+    { "name": "DS_POSTGRES", "label": "PostgreSQL", "type": "datasource", "pluginId": "postgres" }
+  ],
+  "title": "Spend Analytics",
+  "uid": "fraud-spend-001",
+  "version": 1,
+  "schemaVersion": 37,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "tags": ["fraud-pipeline"],
+  "panels": [
+    {
+      "id": 1,
+      "type": "barchart",
+      "title": "Total Spend by Category (last hour)",
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRES}" },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "color": { "mode": "palette-classic" } } },
+      "options": { "orientation": "horizontal", "xTickLabelRotation": 0 },
+      "targets": [{
+        "rawSql": "SELECT dimension_value AS category, SUM(total_amount) AS total_spend FROM spend_aggregates WHERE dimension = 'CATEGORY' AND window_start >= NOW() - INTERVAL '1 hour' GROUP BY dimension_value ORDER BY total_spend DESC LIMIT 20",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 2,
+      "type": "barchart",
+      "title": "Top 10 Merchants by Spend (last hour)",
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRES}" },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "color": { "mode": "palette-classic" } } },
+      "options": { "orientation": "horizontal" },
+      "targets": [{
+        "rawSql": "SELECT dimension_value AS merchant, SUM(total_amount) AS total_spend FROM spend_aggregates WHERE dimension = 'MERCHANT' AND window_start >= NOW() - INTERVAL '1 hour' GROUP BY dimension_value ORDER BY total_spend DESC LIMIT 10",
+        "format": "table"
+      }]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Spend Over Time by Category",
+      "gridPos": { "x": 0, "y": 8, "w": 24, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRES}" },
+      "fieldConfig": { "defaults": { "unit": "currencyUSD", "custom": { "fillOpacity": 10 } } },
+      "targets": [{
+        "rawSql": "SELECT window_start AS time, dimension_value AS metric, total_amount AS value FROM spend_aggregates WHERE dimension = 'CATEGORY' AND window_start >= NOW() - INTERVAL '1 hour' ORDER BY window_start",
+        "format": "time_series"
+      }]
+    },
+    {
+      "id": 4,
+      "type": "table",
+      "title": "Top Accounts by Spend (last 5 min windows)",
+      "gridPos": { "x": 0, "y": 16, "w": 24, "h": 8 },
+      "datasource": { "type": "postgres", "uid": "${DS_POSTGRES}" },
+      "options": { "sortBy": [{ "displayName": "total_spend", "desc": true }] },
+      "targets": [{
+        "rawSql": "SELECT dimension_value AS account_id, SUM(total_amount) AS total_spend, SUM(txn_count) AS transaction_count FROM spend_aggregates WHERE dimension = 'ACCOUNT' AND window_start >= NOW() - INTERVAL '1 hour' GROUP BY dimension_value ORDER BY total_spend DESC LIMIT 20",
+        "format": "table"
+      }],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          { "matcher": { "id": "byName", "options": "total_spend" }, "properties": [{ "id": "unit", "value": "currencyUSD" }] }
+        ]
+      }
+    }
+  ]
+}

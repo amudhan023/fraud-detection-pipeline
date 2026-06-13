@@ -1,0 +1,23 @@
+postgres:
+  host: localhost
+  port: 5432
+  dbname: frauddb
+  user: frauduser
+  password: fraudpass
+
+generator:
+  default_rate: 100        # transactions per second
+  default_fraud_pct: 5.0   # percent of transactions that are fraudulent patterns
+  default_duration: 60     # seconds; 0 = run until killed
+  batch_size: 50           # inserts per DB round trip
+
+fraud_patterns:
+  velocity:
+    burst_count: 15        # N txns in M seconds
+    burst_window_sec: 30
+  amount_spike:
+    normal_max: 200.0
+    spike_multiplier: 20.0 # spike = 20x normal avg
+  geo_travel:
+    normal_country: "US"
+    spike_country: "RU"    # impossible-travel destination
