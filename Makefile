@@ -12,9 +12,10 @@ up:
 	@until curl -sf http://localhost:8083/connectors > /dev/null 2>&1; do \
 		printf '.'; sleep 3; done; echo ""
 	@echo "==> Registering Debezium CDC connector..."
-	curl -sf -X POST http://localhost:8083/connectors \
+	envsubst < infra/kafka/connector-config.json | \
+	  curl -sf -X POST http://localhost:8083/connectors \
 		-H "Content-Type: application/json" \
-		-d @infra/kafka/connector-config.json \
+		-d @- \
 	  && echo "Connector registered." \
 	  || echo "Connector already exists or failed — check: make connector-status"
 	@echo ""

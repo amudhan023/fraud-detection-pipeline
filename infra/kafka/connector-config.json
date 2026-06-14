@@ -6,9 +6,9 @@
 
     "database.hostname": "postgres",
     "database.port": "5432",
-    "database.user": "frauduser",
-    "database.password": "fraudpass",
-    "database.dbname": "frauddb",
+    "database.user": "${POSTGRES_USER:-frauduser}",
+    "database.password": "${POSTGRES_PASSWORD:-fraudpass}",
+    "database.dbname": "${POSTGRES_DB:-frauddb}",
     "database.server.name": "fraud_pg",
 
     "plugin.name": "pgoutput",

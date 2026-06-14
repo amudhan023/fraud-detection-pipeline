@@ -72,13 +72,42 @@ CREATE TABLE IF NOT EXISTS spend_aggregates (
     UNIQUE (window_start, window_end, dimension, dimension_value)
 );
 
+-- ─── AI Analysis Tables ───────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS ai_fraud_analysis (
+    id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    anomaly_event_id    UUID NOT NULL REFERENCES anomaly_events(id),
+    transaction_id      UUID NOT NULL,
+    account_id          UUID NOT NULL,
+    is_fraud            BOOLEAN           NOT NULL,
+    confidence          DOUBLE PRECISION  NOT NULL,
+    ai_risk_score       INTEGER           NOT NULL CHECK (ai_risk_score BETWEEN 0 AND 100),
+    classification      VARCHAR(30)       NOT NULL,
+    reasoning           TEXT              NOT NULL,
+    recommended_actions JSONB             NOT NULL DEFAULT '[]',
+    model_used          VARCHAR(100)      NOT NULL DEFAULT 'claude-opus-4-8',
+    analyzed_at         TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
+    UNIQUE (anomaly_event_id)
+);
+
+CREATE TABLE IF NOT EXISTS fraud_case_actions (
+    id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    anomaly_event_id UUID        NOT NULL REFERENCES anomaly_events(id),
+    action           VARCHAR(50) NOT NULL,
+    notes            TEXT,
+    performed_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 -- ─── Indexes ──────────────────────────────────────────────────────────────────
 
-CREATE INDEX IF NOT EXISTS idx_transactions_account_id  ON transactions (account_id);
-CREATE INDEX IF NOT EXISTS idx_transactions_event_time  ON transactions (event_time DESC);
-CREATE INDEX IF NOT EXISTS idx_anomaly_account_id       ON anomaly_events (account_id);
-CREATE INDEX IF NOT EXISTS idx_anomaly_detected_at      ON anomaly_events (detected_at DESC);
-CREATE INDEX IF NOT EXISTS idx_spend_dimension          ON spend_aggregates (dimension, dimension_value, window_start DESC);
+CREATE INDEX IF NOT EXISTS idx_transactions_account_id    ON transactions (account_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_event_time    ON transactions (event_time DESC);
+CREATE INDEX IF NOT EXISTS idx_anomaly_account_id         ON anomaly_events (account_id);
+CREATE INDEX IF NOT EXISTS idx_anomaly_detected_at        ON anomaly_events (detected_at DESC);
+CREATE INDEX IF NOT EXISTS idx_spend_dimension            ON spend_aggregates (dimension, dimension_value, window_start DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_analysis_anomaly        ON ai_fraud_analysis (anomaly_event_id);
+CREATE INDEX IF NOT EXISTS idx_ai_analysis_classification ON ai_fraud_analysis (classification);
+CREATE INDEX IF NOT EXISTS idx_case_actions_anomaly       ON fraud_case_actions (anomaly_event_id, performed_at DESC);
 
 -- ─── Logical Replication Setup ────────────────────────────────────────────────
 
