@@ -201,7 +201,6 @@ services:
     command: jobmanager
     environment:
       FLINK_CHECKPOINT_DIR: ${FLINK_CHECKPOINT_DIR:-file:///flink-checkpoints}
-      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
       FLINK_PROPERTIES: |
         jobmanager.rpc.address=jobmanager
         state.backend=rocksdb
@@ -238,7 +237,6 @@ services:
     command: taskmanager
     environment:
       FLINK_CHECKPOINT_DIR: ${FLINK_CHECKPOINT_DIR:-file:///flink-checkpoints}
-      GOOGLE_APPLICATION_CREDENTIALS: ${GOOGLE_APPLICATION_CREDENTIALS:-}
       FLINK_PROPERTIES: |
         jobmanager.rpc.address=jobmanager
         taskmanager.numberOfTaskSlots=4
