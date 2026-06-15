@@ -1,4 +1,4 @@
-# Scala / SBT
+# ── Scala / SBT ──────────────────────────────────────────────────────────────
 target/
 project/target/
 project/project/
@@ -8,25 +8,68 @@ project/project/
 .metals/
 .idea/
 *.iml
+.sbt/
 
-# Python
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 .venv/
 venv/
+env/
 dist/
+build/
 *.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+junit*.xml
 
-# Local env
+# ── Node / Next.js ────────────────────────────────────────────────────────────
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+
+# ── Local environment files ───────────────────────────────────────────────────
 .env
 .env.local
+.env.*.local
 
-# Flink checkpoints / state
+# ── Credentials & secrets ─────────────────────────────────────────────────────
+key.json
+*-key.json
+service-account*.json
+sa-*.json
+gcp-credentials*.json
+*.pem
+*.p12
+*.pfx
+
+# ── GCP / Terraform ───────────────────────────────────────────────────────────
+google-cloud-sdk/
+google-cloud-cli-*.tar.gz
+*.tar.gz
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraformrc
+terraform.rc
+
+# ── Flink checkpoints / state ─────────────────────────────────────────────────
 flink-checkpoints/
 flink-savepoints/
 
-# macOS
-.DS_Store
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+logs/
 
-# Grafana exports (keep dashboards/ under version control)
+# ── OS / Editor ───────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
