@@ -83,17 +83,15 @@ object EnrichScoreJob {
     val parsedStream: DataStream[RawTransaction] = rawStream
       .flatMap { json => JsonSerde.parseDebeziumTransaction(json).filter(_.op != "d").toList }
 
-    // Enrich with merchant broadcast state
+    // Enrich with merchant broadcast state (BroadcastProcessFunction requires non-keyed stream)
     val withMerchant: DataStream[(RawTransaction, Option[MerchantProfile])] =
       parsedStream
-        .keyBy(_.accountId)
         .connect(merchantStream.broadcast(merchantStateDesc))
         .process(new MerchantEnrichmentFunction())
 
-    // Enrich with account broadcast state
+    // Enrich with account broadcast state (BroadcastProcessFunction requires non-keyed stream)
     val fullyEnriched: DataStream[(RawTransaction, Option[MerchantProfile], Option[AccountProfile])] =
       withMerchant
-        .keyBy(_._1.accountId)
         .connect(accountStream.broadcast(accountStateDesc))
         .process(new AccountEnrichmentFunction())
 

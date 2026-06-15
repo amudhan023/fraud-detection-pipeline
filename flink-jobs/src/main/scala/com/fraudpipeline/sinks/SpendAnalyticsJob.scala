@@ -4,7 +4,7 @@ import com.fraudpipeline.utils._
 import org.apache.flink.api.common.eventtime.{SerializableTimestampAssigner, WatermarkStrategy}
 import org.apache.flink.api.common.functions.AggregateFunction
 import org.apache.flink.api.common.restartstrategy.RestartStrategies
-import org.apache.flink.connector.jdbc.{JdbcConnectionOptions, JdbcExecutionOptions, JdbcSink, JdbcStatementBuilder}
+import org.apache.flink.connector.jdbc.{JdbcConnectionOptions, JdbcExecutionOptions, JdbcSink}
 import org.apache.flink.connector.kafka.source.KafkaSource
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer
 import org.apache.flink.streaming.api.CheckpointingMode
@@ -16,8 +16,36 @@ import org.apache.flink.streaming.api.windowing.windows.TimeWindow
 import org.apache.flink.util.Collector
 import org.apache.kafka.clients.consumer.OffsetResetStrategy
 
-import java.sql.{PreparedStatement, Timestamp}
+import java.sql.PreparedStatement
+import java.sql.Timestamp
 import java.time.Duration
+
+class SpendStmtBuilder extends org.apache.flink.connector.jdbc.JdbcStatementBuilder[SpendAggregate]
+    with java.io.Serializable {
+  override def accept(stmt: PreparedStatement, agg: SpendAggregate): Unit = {
+    stmt.setTimestamp(1, new Timestamp(agg.windowStart))
+    stmt.setTimestamp(2, new Timestamp(agg.windowEnd))
+    stmt.setString(3, agg.dimension)
+    stmt.setString(4, agg.dimensionValue)
+    stmt.setDouble(5, agg.totalAmount)
+    stmt.setLong(6, agg.txnCount)
+  }
+}
+
+class SpendWindowFn(dimension: String)
+    extends org.apache.flink.streaming.api.scala.function.WindowFunction[
+      (Double, Long), SpendAggregate, String, TimeWindow]
+    with java.io.Serializable {
+  override def apply(
+    key: String,
+    window: TimeWindow,
+    input: Iterable[(Double, Long)],
+    out: Collector[SpendAggregate]
+  ): Unit = {
+    val (totalAmount, txnCount) = input.head
+    out.collect(SpendAggregate(window.getStart, window.getEnd, dimension, key, totalAmount, txnCount))
+  }
+}
 
 object SpendAnalyticsJob {
 
@@ -80,46 +108,25 @@ object SpendAnalyticsJob {
         |  txn_count    = EXCLUDED.txn_count
         |""".stripMargin
 
-    val stmtBuilder: JdbcStatementBuilder[SpendAggregate] =
-      (stmt: PreparedStatement, agg: SpendAggregate) => {
-        stmt.setTimestamp(1, new Timestamp(agg.windowStart))
-        stmt.setTimestamp(2, new Timestamp(agg.windowEnd))
-        stmt.setString(3, agg.dimension)
-        stmt.setString(4, agg.dimensionValue)
-        stmt.setDouble(5, agg.totalAmount)
-        stmt.setLong(6, agg.txnCount)
-      }
-
-    // Inline window function avoids the ProcessWindowFunction.Context type-projection issue in Scala
-    def windowFn(dimension: String)(
-      key   : String,
-      window: TimeWindow,
-      inputs: Iterable[(Double, Long)],
-      out   : Collector[SpendAggregate]
-    ): Unit = {
-      val (totalAmount, txnCount) = inputs.head
-      out.collect(SpendAggregate(window.getStart, window.getEnd, dimension, key, totalAmount, txnCount))
-    }
-
     val agg = new SpendAggregateFunction
 
     val categoryAgg = scoredStream
       .keyBy(_.merchantCategory)
       .window(TumblingEventTimeWindows.of(Time.minutes(1)))
-      .aggregate(agg, windowFn("CATEGORY") _)
+      .aggregate(agg, new SpendWindowFn("CATEGORY"))
 
     val merchantAgg = scoredStream
       .keyBy(_.merchantId)
       .window(TumblingEventTimeWindows.of(Time.minutes(1)))
-      .aggregate(agg, windowFn("MERCHANT") _)
+      .aggregate(agg, new SpendWindowFn("MERCHANT"))
 
     val accountAgg = scoredStream
       .keyBy(_.accountId)
       .window(TumblingEventTimeWindows.of(Time.minutes(5)))
-      .aggregate(agg, windowFn("ACCOUNT") _)
+      .aggregate(agg, new SpendWindowFn("ACCOUNT"))
 
     categoryAgg.union(merchantAgg, accountAgg)
-      .addSink(JdbcSink.sink(upsertSql, stmtBuilder, jdbcExecOptions, jdbcOptions))
+      .addSink(JdbcSink.sink(upsertSql, new SpendStmtBuilder(), jdbcExecOptions, jdbcOptions))
 
     env.execute("FraudPipeline::SpendAnalytics")
   }

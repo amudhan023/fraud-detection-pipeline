@@ -19,8 +19,16 @@
 
     "topic.prefix": "fraud_pg",
 
-    "transforms": "route",
-    "transforms.route.type": "org.apache.kafka.connect.transforms.ReplaceField$Value",
+    "transforms": "routeTxn,routeMerchants,routeAccounts",
+    "transforms.routeTxn.type": "org.apache.kafka.connect.transforms.RegexRouter",
+    "transforms.routeTxn.regex": "fraud_pg\\.public\\.transactions",
+    "transforms.routeTxn.replacement": "transactions.raw",
+    "transforms.routeMerchants.type": "org.apache.kafka.connect.transforms.RegexRouter",
+    "transforms.routeMerchants.regex": "fraud_pg\\.public\\.merchants",
+    "transforms.routeMerchants.replacement": "enrichment.merchants",
+    "transforms.routeAccounts.type": "org.apache.kafka.connect.transforms.RegexRouter",
+    "transforms.routeAccounts.regex": "fraud_pg\\.public\\.accounts",
+    "transforms.routeAccounts.replacement": "enrichment.accounts",
 
     "key.converter": "org.apache.kafka.connect.json.JsonConverter",
     "key.converter.schemas.enable": "false",
