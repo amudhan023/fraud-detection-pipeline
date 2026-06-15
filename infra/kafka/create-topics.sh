@@ -3,10 +3,12 @@
 set -euo pipefail
 
 KAFKA_BROKER="${KAFKA_BROKER:-kafka:29092}"
+# Confluent CP images expose kafka-topics (no .sh); plain Apache uses kafka-topics.sh
+KAFKA_TOPICS_CMD=$(command -v kafka-topics 2>/dev/null || command -v kafka-topics.sh 2>/dev/null || echo "kafka-topics")
 
 create_topic() {
   local name=$1 partitions=$2 retention_ms=$3 cleanup=$4
-  kafka-topics.sh \
+  $KAFKA_TOPICS_CMD \
     --bootstrap-server "$KAFKA_BROKER" \
     --create --if-not-exists \
     --topic "$name" \
