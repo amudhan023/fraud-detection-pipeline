@@ -4,6 +4,7 @@ import com.fraudpipeline.utils._
 import org.apache.flink.api.common.eventtime.{SerializableTimestampAssigner, WatermarkStrategy}
 import org.apache.flink.api.common.restartstrategy.RestartStrategies
 import org.apache.flink.api.common.state.MapStateDescriptor
+import org.apache.flink.connector.jdbc.{JdbcConnectionOptions, JdbcExecutionOptions, JdbcSink}
 import org.apache.flink.connector.kafka.source.KafkaSource
 import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsInitializer
 import org.apache.flink.streaming.api.CheckpointingMode
@@ -11,7 +12,22 @@ import org.apache.flink.streaming.api.environment.CheckpointConfig.ExternalizedC
 import org.apache.flink.streaming.api.scala._
 import org.apache.kafka.clients.consumer.OffsetResetStrategy
 
+import java.sql.PreparedStatement
 import java.time.Duration
+
+class ScoredTxnStmtBuilder
+    extends org.apache.flink.connector.jdbc.JdbcStatementBuilder[ScoredTransaction]
+    with java.io.Serializable {
+  override def accept(stmt: PreparedStatement, t: ScoredTransaction): Unit = {
+    stmt.setString(1, t.transactionId)
+    stmt.setString(2, t.accountId)
+    stmt.setString(3, t.merchantId)
+    stmt.setDouble(4, t.amount)
+    stmt.setDouble(5, t.riskScore)
+    stmt.setString(6, JsonSerde.toJson(t.scoreBreakdown))
+    stmt.setLong(7, t.eventTimeMs)
+  }
+}
 
 object EnrichScoreJob {
 
@@ -104,6 +120,32 @@ object EnrichScoreJob {
     scoredStream.sinkTo(
       KafkaSinks.jsonSink[ScoredTransaction](bootstrapServers, cfg.Topics.scored, _.accountId)
     )
+
+    val jdbcOptions = new JdbcConnectionOptions.JdbcConnectionOptionsBuilder()
+      .withUrl(cfg.postgres.getString("url"))
+      .withDriverName("org.postgresql.Driver")
+      .withUsername(cfg.postgres.getString("user"))
+      .withPassword(cfg.postgres.getString("password"))
+      .build()
+    val jdbcExecOptions = JdbcExecutionOptions.builder()
+      .withBatchSize(200)
+      .withBatchIntervalMs(2000L)
+      .withMaxRetries(3)
+      .build()
+
+    scoredStream.addSink(JdbcSink.sink(
+      """INSERT INTO scored_transactions
+        |  (transaction_id, account_id, merchant_id, amount, risk_score, score_breakdown, event_time)
+        |VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?::jsonb, to_timestamp(?/1000.0))
+        |ON CONFLICT (transaction_id) DO UPDATE SET
+        |  risk_score = EXCLUDED.risk_score,
+        |  score_breakdown = EXCLUDED.score_breakdown,
+        |  processed_at = NOW()
+        |""".stripMargin,
+      new ScoredTxnStmtBuilder(),
+      jdbcExecOptions,
+      jdbcOptions
+    ))
 
     env.execute("FraudPipeline::EnrichScore")
   }

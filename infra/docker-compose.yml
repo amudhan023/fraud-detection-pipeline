@@ -200,6 +200,9 @@ services:
       - "9249:9249"   # Prometheus metrics
     command: jobmanager
     environment:
+      POSTGRES_URL: "jdbc:postgresql://postgres:5432/${POSTGRES_DB:-frauddb}"
+      POSTGRES_USER: ${POSTGRES_USER:-frauduser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fraudpass}
       FLINK_CHECKPOINT_DIR: ${FLINK_CHECKPOINT_DIR:-file:///flink-checkpoints}
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: jobmanager
@@ -235,12 +238,16 @@ services:
       jobmanager:
         condition: service_healthy
     command: taskmanager
+    restart: unless-stopped
     environment:
+      POSTGRES_URL: "jdbc:postgresql://postgres:5432/${POSTGRES_DB:-frauddb}"
+      POSTGRES_USER: ${POSTGRES_USER:-frauduser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fraudpass}
       FLINK_CHECKPOINT_DIR: ${FLINK_CHECKPOINT_DIR:-file:///flink-checkpoints}
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: jobmanager
-        taskmanager.numberOfTaskSlots: 4
-        taskmanager.memory.process.size: 2048m
+        taskmanager.numberOfTaskSlots: 16
+        taskmanager.memory.process.size: 4096m
         state.backend: rocksdb
         state.backend.incremental: true
         state.checkpoints.dir: ${FLINK_CHECKPOINT_DIR:-file:///flink-checkpoints}
