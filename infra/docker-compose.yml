@@ -42,7 +42,7 @@ services:
     volumes:
       - kafka-data:/var/lib/kafka/data
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server kafka:29092 --list 2>/dev/null || exit 1"]
+      test: ["CMD-SHELL", "(kafka-topics --bootstrap-server kafka:29092 --list 2>/dev/null || kafka-topics.sh --bootstrap-server kafka:29092 --list 2>/dev/null) | grep -qv '^$' || bash -c 'echo > /dev/tcp/localhost/9092' 2>/dev/null"]
       interval: 10s
       timeout: 10s
       retries: 15
@@ -364,7 +364,7 @@ services:
       CORS_ORIGINS: "${CORS_ORIGINS:-*}"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:8000/health > /dev/null"]
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
       interval: 15s
       timeout: 5s
       retries: 5
